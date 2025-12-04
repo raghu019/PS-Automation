@@ -1,0 +1,726 @@
+import pyautogui
+import pygetwindow as gw
+from pywinauto import Application
+import os
+import sys
+import io
+import time
+from pywinauto.timings import Timings
+from pywinauto.timings import wait_until_passes
+from pywinauto import Desktop
+
+ 
+class MyHP:
+    TIMEOUT = 5
+ 
+    def __init__(self):
+        self.application = None
+        self.main_window = None
+        self.app_title = "HP"
+        self.baseline_folder = r"C:\Users\cmit\Desktop\HPX\Baseline"
+        # if not os.path.exists(self.baseline_folder):
+        #     os.makedirs(self.baseline_folder)
+ 
+    # ---------------- Logger ----------------
+    def _log_result(self, test_name, status, message=""):
+        result = "PASS" if status else "FAIL"
+        print(f"[{result}] {test_name}: {message}")
+
+    def _log_debug(self, message):
+        print(f"[DEBUG] {message}")
+
+
+ 
+    # ---------------- Open HP Application ----------------
+    def open_hp_application(self):
+        """Open HP application using Windows search"""
+        try:
+            pyautogui.press('winleft')
+            time.sleep(1)
+            pyautogui.write(self.app_title)
+            time.sleep(1)
+            pyautogui.press('enter')
+            time.sleep(5)
+ 
+            active_window = gw.getActiveWindow()
+            if active_window and self.app_title in active_window.title:
+                active_window.maximize()
+                time.sleep(2)
+                self._log_result("Open Application", True)
+                return True
+            else:
+                self._log_result("Open Application", False, "Wrong window focused")
+                return False
+        except Exception as e:
+            self._log_result("Open Application", False, str(e))
+            return False
+ 
+    # ---------------- Connect to HP Application ----------------
+    def connect_to_application(self):
+        try:
+            # Wait for the app to open properly
+            time.sleep(3)
+ 
+            # Get all open windows containing 'HP'
+            hp_windows = [w for w in gw.getAllTitles() if "HP" in w and w.strip() != ""]
+ 
+            if not hp_windows:
+                self._log_result("Connect to Application", False, "No HP window found")
+                return False
+ 
+            # Print them to console for visibility
+            print("\n[INFO] Detected HP-related windows:")
+            for w in hp_windows:
+                print(f"   - {w}")
+ 
+            # Try to pick the main HP App window
+            # (Adjust this condition to your exact app title if needed)
+            main_title = None
+            for w in hp_windows:
+                if "HP" in w and "Service" not in w and "Support" not in w and "Quick" not in w:
+                    main_title = w
+                    break
+ 
+            if not main_title:
+                self._log_result("Connect to Application", False, "Main HP window not found")
+                return False
+ 
+            print(f"\n[INFO] Connecting to window: {main_title}")
+ 
+            # Connect to that specific window
+            self.application = Application(backend="uia").connect(title=main_title)
+            self.main_window = self.application.window(title=main_title)
+            time.sleep(2)
+ 
+            self._log_result("Connect to Application", True, f"Connected to: {main_title}")
+           
+            # self.main_window.print_control_identifiers()
+            return True
+ 
+        except Exception as e:
+            self._log_result("Connect to Application", False, str(e))
+            return False
+ 
+    # ---------------- Print Window Dump ----------------
+    # def print_window_dump(self):
+    #     """Print a hierarchical dump of all child windows"""
+    #     if self.main_window:
+    #         print("\n--- Window Dump ---")
+    #         self.main_window.print_control_identifiers()
+    #     else:
+    #         self._log_result("Window Dump", False, "Main window not connected")
+
+    def dump_ui_tree_to_file(self):
+        """Dump the full UI tree of the current main window to a text file."""
+        if not self.main_window:
+            self._log_result("Dump UI Tree", False, "Application not connected")
+            return False
+        try:
+            dump_path = os.path.join(self.baseline_folder, "ui_dump.txt")
+            with open(dump_path, "w", encoding="utf-8") as f:
+                buffer = io.StringIO()
+                sys.stdout = buffer
+                self.main_window.print_control_identifiers()
+                sys.stdout = sys.__stdout__  # Reset stdout
+                f.write(buffer.getvalue())
+                buffer.close()
+            self._log_result("Dump UI Tree", True, f"Saved to {dump_path}")
+            return True
+        except Exception as e:
+            sys.stdout = sys.__stdout__  # Ensure stdout is reset
+            self._log_result("Dump UI Tree", False, str(e))
+            return False
+ 
+ 
+            # ---------------- Navigate to Programmable Key ----------------
+    # def navigate_to_ProgrammableKey(self):
+    #     """Navigate to the Programmable Key module inside PC Device page"""
+    #     if not self.main_window:
+    #         self._log_result("Navigate to Programmable Key", False, "Application not connected")
+    #         return False
+    #     try:
+    #         time.sleep(3)  # wait for PC Device page to load
+ 
+    #         self.main_window.type_keys("{PGDN}")
+    #         time.sleep(2)
+ 
+    #         progkey_btn = self.main_window.child_window(title="Programmable key", auto_id="PcDeviceCards.PcDeviceActionCards.ProgkeyXSettingsCard__header",
+    #                                                     control_type="Text")
+ 
+    #         if progkey_btn.exists(timeout=10):  
+    #             progkey_btn.click_input()
+    #             time.sleep(5)
+    #             self._log_result("Navigate to Programmable Key", True)
+    #             return True
+    #         else:
+    #             self._log_result("Navigate to Programmable Key", False, "Programmable Key button not found")
+    #             return False
+ 
+    #     except Exception as e:
+    #         self._log_result("Navigate to Programmable Key", False, str(e))
+    #         return False
+
+ # ---------------- Navigate to Audio control ----------------
+    def navigate_to_Audio(self):
+        """Navigate to the Audio module inside PC Device page"""
+        if not self.main_window:
+            self._log_result("Navigate to Audio", False, "Application not connected")
+            return False
+        try:
+            time.sleep(5)  # wait for PC Device page to load
+ 
+            self.main_window.type_keys("{PGDN}")
+            time.sleep(2)
+ 
+            audio_btn = self.main_window.child_window(auto_id="PcDeviceCards.PcDeviceActionCards.PcaudioXCoreCard", control_type="Button")
+ 
+            if audio_btn.exists(timeout=10):  
+                audio_btn.click_input()
+                time.sleep(5)
+                self._log_result("Navigate to audio page", True)
+                return True
+            else:
+                self._log_result("Navigate to audio page", False, "audio module button not found")
+                return False
+ 
+        except Exception as e:
+            self._log_result("Navigate to audio page", False, str(e))
+            return False
+        
+
+
+    # ---------------- Delete the apps from app bar----------------
+                        
+    def del_app(self):
+        """
+        FULL WORKFLOW:
+
+        1. Click ANY app → Delete → Continue
+        2. Click ANY app → Delete → Cancel
+        3. Click ANY app → Delete → Checkbox + Continue
+        4. AGAIN Click ANY app → Delete → VERIFY NO POPUP APPEARS
+        """
+
+        if not self.main_window:
+            self._log_result("Click Any App", False, "Application not connected")
+            return False
+
+        try:
+            import time
+
+            # --------------------------------------------------------------
+            #  CORRECT CAROUSEL AUTO IDs (working ones)
+            # --------------------------------------------------------------
+            app_auto_ids = [
+                ("Administrative Tools", "ReactPCContextAware.Carousel.CarouselItem2328013EC67257A5EFF59B60098FEB2B"),
+                ("Calculator", "ReactPCContextAware.Carousel.CarouselItem2399C925B35566234AB600C70B12C40E"),
+                ("Calendar", "ReactPCContextAware.Carousel.CarouselItemC24AD5F1F800ED5D431B6E23DAB94B1B"),
+                ("Command Prompt", "ReactPCContextAware.Carousel.CarouselItem638D987E05CF5DE7460A01837C024F19"),
+                ("Copilot", "ReactPCContextAware.Carousel.CarouselItem5256B9B8FF48BCECD8077FC44CBF239E"),
+            ]
+
+            # --------------------------------------------------------------
+            # Helper → Click ANY visible app in carousel
+            # --------------------------------------------------------------
+            def click_any_app():
+                for app_name, auto_id in app_auto_ids:
+                    app_item = self.main_window.child_window(
+                        auto_id=auto_id,
+                        control_type="ListItem"
+                    )
+
+                    if app_item.exists(timeout=3) and app_item.is_visible():
+                        app_item.click_input()
+                        time.sleep(1)
+                        self._log_result("Clicked App", True, f"App: {app_name}")
+                        return True
+
+                self._log_result("Clicked App", False, "No visible app found in carousel")
+                return False
+
+            # --------------------------------------------------------------
+            # Delete button
+            # --------------------------------------------------------------
+            def click_delete_button():
+                delete_btn = self.main_window.child_window(
+                    title="Delete profile",
+                    auto_id="ReactPCContextAware.Carousel.DeleteProfileButton",
+                    control_type="Button"
+                )
+
+                if delete_btn.exists(timeout=5) and delete_btn.is_enabled():
+                    time.sleep(1)
+                    delete_btn.click_input()
+                    time.sleep(1)
+                    self._log_result("Delete Profile", True, "Delete profile clicked")
+                    return True
+
+                self._log_result("Delete Profile", False, "Delete profile not visible or enabled")
+                return False
+
+            # --------------------------------------------------------------
+            # Delete Popup buttons
+            # --------------------------------------------------------------
+            def popup_continue():
+                btn = self.main_window.child_window(
+                    title="Continue",
+                    auto_id="ReactPCContextAware.DeleteProfileModal.ContinueButton",
+                    control_type="Button"
+                )
+                if btn.exists(timeout=4):
+                    time.sleep(1)
+                    btn.click_input()
+                    time.sleep(1)
+                    self._log_result("Popup Continue", True, "Continue clicked")
+                    return True
+
+                self._log_result("Popup Continue", False, "Continue not found")
+                return False
+
+            def popup_cancel():
+                btn = self.main_window.child_window(
+                    title="Cancel",
+                    auto_id="ReactPCContextAware.DeleteProfileModal.CancelButton",
+                    control_type="Button"
+                )
+                if btn.exists(timeout=4):
+                    time.sleep(1)
+                    btn.click_input()
+                    time.sleep(1)
+                    self._log_result("Popup Cancel", True, "Cancel clicked")
+                    return True
+
+                self._log_result("Popup Cancel", False, "Cancel not found")
+                return False
+
+            def popup_checkbox_continue():
+                checkbox = self.main_window.child_window(
+                    title="Do not show again",
+                    auto_id="ReactPCContextAware.DeleteProfileModal.ConfirmationCheckbox__checkbox",
+                    control_type="CheckBox"
+                )
+
+                if checkbox.exists(timeout=4):
+                    checkbox.click_input()
+                    time.sleep(0.5)
+                    self._log_result("Popup Checkbox", True, "Checkbox selected")
+                else:
+                    self._log_result("Popup Checkbox", False, "Checkbox not found")
+
+                return popup_continue()
+
+            # ===================================================================
+            # WORKFLOW
+            # ===================================================================
+
+            # Step 1
+            if click_any_app() and click_delete_button():
+                popup_continue()
+
+            # Step 2
+            if click_any_app() and click_delete_button():
+                popup_cancel()
+
+            # Step 3
+            if click_any_app() and click_delete_button():
+                popup_checkbox_continue()
+
+            # Step 4
+            if click_any_app() and click_delete_button():
+                time.sleep(2)
+                popup = self.main_window.child_window(title="Delete Profile", control_type="Window")
+
+                if popup.exists(timeout=1):
+                    self._log_result("Popup Verification", False, "Popup appeared again! Not expected.")
+                else:
+                    self._log_result("Popup Verification", True, "No popup appeared as expected.")
+
+            return True
+
+        except Exception as e:
+            self._log_result("Select Any App for Focus", False, str(e))
+            return False
+
+
+
+
+    # ---------------- Navigate to CA module ----------------
+
+    
+    def navigate_to_CA(self):
+        """Navigate to the CA module"""
+        if not self.main_window:
+            self._log_result("CA", False, "Application not connected")
+            return False
+        try:
+            time.sleep(3)  # wait for CA page to load
+ 
+            add_btn = self.main_window.child_window(title="Add Application", auto_id="ReactPCContextAware.Carousel.AddButton", control_type="Button")
+ 
+            if add_btn.exists(timeout=10):  
+                add_btn.click_input()
+                time.sleep(5)
+                self._log_result("Custom app Button clicked", True)
+                # self.main_window.print_control_identifiers()
+                return True
+            else:
+                self._log_result("add button exist", False, "button failed to click")
+                return False
+ 
+        except Exception as e:
+            self._log_result("Add button clicking", False, str(e))
+            return False
+        
+         
+
+
+            # ------------ Add Multiple Apps (FINAL VERSION) -----------
+            
+            
+             
+    def add_multiple_apps(self):
+        try:
+            self._log_result("Add Apps", True, "Starting process for multiple apps")
+
+            # ✅ App details with auto_ids (including Command Prompt)
+            apps_to_add = [
+                ("Administrative Tools", "ReactPCContextAware.InstalledAppsModal.AppItem2328013EC67257A5EFF59B60098FEB2B"),
+                ("Calculator", "ReactPCContextAware.InstalledAppsModal.AppItem2399C925B35566234AB600C70B12C40E"),
+                ("Calendar", "ReactPCContextAware.InstalledAppsModal.AppItemC24AD5F1F800ED5D431B6E23DAB94B1B"),
+                ("Command Prompt", "ReactPCContextAware.InstalledAppsModal.AppItem638D987E05CF5DE7460A01837C024F19"),
+                ("Copilot", "ReactPCContextAware.InstalledAppsModal.AppItem5256B9B8FF48BCECD8077FC44CBF239E")
+
+            ]
+
+            # List container reference (still needed but no scrolling done on it)
+            list_container = self.main_window.child_window(
+                auto_id="ReactPCContextAware.InstalledAppsModal.AppList",
+                control_type="Group"
+            )
+
+            for index, (app_name, app_id) in enumerate(apps_to_add):
+                app_btn = self.main_window.child_window(auto_id=app_id, control_type="Button")
+                found = False
+
+                # Try without scrolling first
+                for _ in range(10):
+                    if app_btn.exists() and app_btn.is_visible():
+                        found = True
+                        break
+                    time.sleep(0.5)
+
+                # Apply scroll logic if not found
+                if not found:
+                    self._log_result("Add Apps", True, f"Scrolling to find {app_name}...")
+
+                    try:
+                        # Ensure focus by selecting first app
+                        first_app_btn = self.main_window.child_window(auto_id=apps_to_add[0][1], control_type="Button")
+                        if first_app_btn.exists():
+                            first_app_btn.click_input()
+                            self._log_result("Add Apps", True, "Focus set by selecting Calculator")
+
+                        # FIX: Scroll the MAIN WINDOW (NOT the list container)
+                        for _ in range(15):
+                            if app_btn.exists() and app_btn.is_visible():
+                                found = True
+                                break
+                            self.main_window.type_keys("{PGDN}")   # CHANGED
+                            time.sleep(1)
+
+                        # Fallback: wheel scroll
+                        if not found:
+                            for _ in range(10):
+                                if app_btn.exists() and app_btn.is_visible():
+                                    found = True
+                                    break
+                                self.main_window.wheel_scroll(-1)  # CHANGED
+                                time.sleep(1)
+
+                    except Exception as e:
+                        self._log_result("Add Apps", False, f"Scrolling failed: {str(e)}")
+
+                if not found:
+                    self._log_result("Add Apps", False, f"{app_name} button not visible, skipping...")
+                    continue
+
+                # Click app
+                app_btn.click_input()
+                time.sleep(2)
+                self._log_result("Add Apps", True, f"{app_name} selected")
+
+                # Step 2: Click Continue
+                continue_btn = self.main_window.child_window(title="Continue", control_type="Button")
+                for _ in range(10):
+                    if continue_btn.exists() and continue_btn.is_enabled():
+                        break
+                    time.sleep(1)
+
+                if not continue_btn.exists() or not continue_btn.is_enabled():
+                    self._log_result("Add Apps", False, f"Continue button not enabled for {app_name}, skipping...")
+                    continue
+
+                continue_btn.click_input()
+                time.sleep(2)
+                self._log_result("Add Apps", True, f"Continue clicked for {app_name}")
+
+                # Step 3: Click Add Application (+) button (except last app)
+                if index < len(apps_to_add) - 1:
+                    add_btn = self.main_window.child_window(
+                        title="Add Application",
+                        auto_id="ReactPCContextAware.Carousel.AddButton",
+                        control_type="Button"
+                    )
+
+                    for _ in range(10):
+                        if add_btn.exists():
+                            break
+                        time.sleep(0.5)
+                    else:
+                        self._log_result("Add Apps", False, "Add (+) button not found, skipping next app")
+                        continue
+
+                    add_btn.click_input()
+                    time.sleep(2)
+                    self._log_result("Add Apps", True, "Add (+) button clicked")
+
+            return True
+
+        except Exception as e:
+            self._log_result("Add Apps", False, f"Exception occurred: {str(e)}")
+            return False
+
+
+
+    # ---------------- Verify and Hover app Tooltip in app bar ----------------
+
+
+    def verify_carousel_app_tooltips(self):
+        """
+        Click each app in the carousel and verify its tooltip appears.
+        Capture screenshot after successful tooltip match in a dedicated folder.
+        """
+
+        if not self.main_window:
+            self._log_result("Carousel Tooltip Check", False, "Application not connected")
+            return False
+
+        # Folder for screenshots
+        screenshot_dir = r"C:\Users\cmit\Desktop\HPX\Screenshots"
+        os.makedirs(screenshot_dir, exist_ok=True)
+
+        # List of app names in the carousel
+        app_names = [
+            "Administrative Tools",
+            "Calculator",
+            "Calendar",
+            "Command Prompt",
+            "Copilot"
+        ]
+
+        def _get_tooltip(expected_name):
+            """Search within main window for tooltip by title and control type."""
+            try:
+                tooltip = self.main_window.child_window(
+                    title=expected_name,
+                    control_type="ToolTip"
+                )
+                if tooltip.exists(timeout=1):
+                    return tooltip.window_text().strip()
+            except:
+                pass
+            return None
+
+        try:
+            for expected_name in app_names:
+                # Locate the app by title and control type
+                app_item = self.main_window.child_window(
+                    title=f"carousel-item-{expected_name}",
+                    control_type="ListItem"
+                )
+
+                if not app_item.exists(timeout=5):
+                    self._log_result(expected_name, False, "App not found in carousel")
+                    continue
+
+                # Scroll into view
+                try:
+                    app_item.scroll_into_view()
+                except:
+                    pass
+
+                # Click and focus
+                try:
+                    app_item.click_input()
+                    app_item.set_focus()
+                    time.sleep(3.0)  # Wait for tooltip to appear
+                except Exception as e:
+                    self._log_result(expected_name, False, f"Click/Focus failed: {str(e)}")
+                    continue
+
+                # Detect tooltip
+                tooltip_text = None
+                for _ in range(20):  # Retry for ~6 seconds
+                    tooltip_text = _get_tooltip(expected_name)
+                    if tooltip_text:
+                        break
+                    time.sleep(0.3)
+
+                if not tooltip_text:
+                    self._log_result(expected_name, False, "Tooltip not visible after focus")
+                    continue
+
+                # Validate tooltip text
+                if expected_name.lower() in tooltip_text.lower():
+                    self._log_result(expected_name, True, f"Tooltip is matched : {tooltip_text}")
+
+                    #  Capture screenshot after successful match
+                    # try:
+                    #     img = self.main_window.capture_as_image()
+                    #     img.save(os.path.join(screenshot_dir, f"{expected_name}_tooltip_match.png"))
+                    # except Exception as e:
+                    #     self._log_result(expected_name, False, f"Screenshot failed: {str(e)}")
+
+                else:
+                    self._log_result(expected_name, False, f"Tooltip is mismatched: {tooltip_text}")
+
+            return True
+
+        except Exception as e:
+            self._log_result("Carousel Tooltip Check", False, str(e))
+            return False
+
+
+    # ---------------- Search and Add Calculator App ----------------
+        
+        
+    def search_app_add(self):
+        """
+        Click search box, search for Calculator in Installed Apps modal, select it, click Continue,
+        and verify it is added to the carousel.
+        """
+
+        if not self.main_window:
+            self._log_result("Add Calculator App", False, "Application not connected")
+            return False
+
+        try:
+            # Step 1: Locate and click the search box
+            search_box = self.main_window.child_window(
+                auto_id="ReactPCContextAware.InstalledAppsModal.SearchApplication__text-box",
+                control_type="Edit"
+            )
+
+            if not search_box.exists(timeout=5):
+                self._log_result("Add Calculator App", False, "Search box not found")
+                return False
+
+            search_box.click_input()
+            search_box.set_focus()
+            self._log_result("Add Calculator App", True, "Search box clicked and focused successfully")
+
+            # Step 2: Enter search term
+            search_term = "calculator"
+            search_box.type_keys(search_term, with_spaces=True)
+            self._log_result("Add Calculator App", True, f"Entered search term: {search_term}")
+
+            # Step 3: Wait for Calculator app using provided auto_id and title
+            app_item = self.main_window.child_window(
+                title="Calculator",
+                auto_id="ReactPCContextAware.InstalledAppsModal.AppItem2399C925B35566234AB600C70B12C40E",
+                control_type="Button"
+            )
+
+            if not app_item.exists(timeout=15):
+                # Retry with partial keyword if full name fails
+                search_box.type_keys("^a{BACKSPACE}")  # Clear previous text
+                search_box.type_keys("cal", with_spaces=True)
+                self._log_result("Add Calculator App", True, "Retrying with partial keyword: cal")
+                if not app_item.exists(timeout=15):
+                    self._log_result("Add Calculator App", False, "Calculator app not found in search results")
+                    return False
+
+            # Step 4: Select the Calculator app
+            app_item.click_input()
+            self._log_result("Add Calculator App", True, "Calculator app selected")
+
+            # Step 5: Click Continue button
+            continue_btn = self.main_window.child_window(title="Continue", control_type="Button")
+            if continue_btn.exists(timeout=5):
+                continue_btn.click_input()
+                self._log_result("Add Calculator App", True, "Clicked Continue button")
+            else:
+                self._log_result("Add Calculator App", False, "Continue button not found")
+                return False
+
+            # Step 6: Verify app added to carousel using provided auto_id
+            carousel_item = self.main_window.child_window(
+                title="carousel-item-Calculator",
+                auto_id="ReactPCContextAware.Carousel.CarouselItem2399C925B35566234AB600C70B12C40E",
+                control_type="ListItem"
+            )
+
+            if carousel_item.exists(timeout=20):
+                self._log_result("Add Calculator App", True, "Calculator app added to carousel successfully")
+                return True
+            else:
+                self._log_result("Add Calculator App", False, "Calculator app not added to carousel")
+                return False
+
+        except Exception as e:
+            self._log_result("Add Calculator App", False, str(e))
+            return False
+
+
+    # ---------------- Verify application is present in carousel or not ----------------
+
+    def verify_calculator_in_carousel(self):
+        """
+        Verify that Calculator app exists in the carousel after adding.
+        """
+
+        if not self.main_window:
+            self._log_result("Carousel Verification", False, "Application not connected")
+            return False
+
+        try:
+            # Locate carousel item using provided auto_id and title
+            carousel_item = self.main_window.child_window(
+                title="carousel-item-Calculator",
+                auto_id="ReactPCContextAware.Carousel.CarouselItem2399C925B35566234AB600C70B12C40E",
+                control_type="ListItem"
+            )
+
+            if carousel_item.exists(timeout=20):
+                self._log_result("Carousel Verification", True, "Calculator app is present in the appbar")
+                return True
+            else:
+                self._log_result("Carousel Verification", False, "Calculator app is NOT present in the appbar")
+                return False
+
+        except Exception as e:
+            self._log_result("Carousel Verification", False, str(e))
+            return False
+
+
+
+
+
+ 
+# ---------------- Main ----------------
+if __name__ == "__main__":
+    hp_app = MyHP()
+    if hp_app.open_hp_application():
+        if hp_app.connect_to_application():
+            if hp_app.navigate_to_Audio():
+                    #  if hp_app.dump_ui_tree_to_file():
+                # if hp_app.navigate_to_CA():
+                    # if hp_app.dump_ui_tree_to_file():
+                    # if hp_app.search_app_add():
+                        if hp_app.verify_calculator_in_carousel():
+                        # if hp_app.dump_ui_tree_to_file():
+                    # if hp_app.add_multiple_apps():
+                        #  if hp_app.verify_carousel_app_tooltips():
+                            # if hp_app.del_app():
+                   
+                         print("success")    
