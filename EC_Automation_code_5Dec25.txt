@@ -1,0 +1,344 @@
+import time
+import os
+import psutil
+import pyautogui
+import pygetwindow as gw
+from pywinauto import Application, timings
+ 
+ 
+class MyHP:
+ 
+    TIMEOUT = 5
+ 
+    def __init__(self):
+        self.application = None
+        self.main_window = None
+        self.app_title = "HP"
+        self.baseline_folder = r"C:\Users\HP Admin\Downloads\A Testing\Baseline"
+        if not os.path.exists(self.baseline_folder):
+            os.mkdir(self.baseline_folder)
+ 
+    # ---------------- Logger ----------------
+    def _log_result(self, test_name, status, message=""):
+        result = "PASS" if status else "FAIL"
+        print(f"[{result}] {test_name}: {message}")
+ 
+    # ---------------- Open HP Application ----------------
+    def open_hp_application(self):
+        try:
+            pyautogui.press('winleft')
+            time.sleep(1)
+            pyautogui.write(self.app_title)
+            time.sleep(1)
+            pyautogui.press('enter')
+            time.sleep(5)
+ 
+            active_window = gw.getActiveWindow()
+            if active_window and self.app_title in active_window.title:
+                active_window.maximize()
+                time.sleep(2)
+                self._log_result("Open Application", True, "")
+                return True
+            else:
+                self._log_result("Open Application", False, "Wrong window focused")
+                return False
+        except Exception as e:
+            self._log_result("Open Application", False, str(e))
+            return False
+ 
+    # ---------------- Connect to HP Application ----------------
+    def connect_to_application(self):
+        try:
+            self.application = Application(backend="uia").connect(title_re=self.app_title)
+            self.main_window = self.application.window(title_re=self.app_title)
+            time.sleep(5)
+            self._log_result("Connect to Application", True, "")
+            return True
+        except Exception as e:
+            self._log_result("Connect to Application", False, str(e))
+            return False
+ 
+    # ---------------- Navigate to Energy Consumption ----------------
+    def navigate_to_EnergyConsumption(self):
+        if not self.main_window:
+            self._log_result("Navigate to Energy Consumption", False, "Application not connected")
+            return False
+ 
+        try:
+            time.sleep(10)
+            self.main_window.type_keys("{PGDN}")
+            time.sleep(5)
+ 
+            energy_btn = self.main_window.child_window(
+                auto_id="PcDeviceCards.PcDeviceActionCards.PcecometerXSettingsCard",
+                control_type="Button"
+            )
+ 
+            if energy_btn.exists(timeout=10):
+                energy_btn.click_input()
+                time.sleep(5)
+                self._log_result("Navigate to Energy Consumption", True, "")
+                return True
+            else:
+                self._log_result("Navigate to Energy Consumption", False, "Energy consumption button not found")
+                return False
+        except Exception as e:
+            self._log_result("Navigate to Energy Consumption", False, str(e))
+            return False
+ 
+    # ---------------- Scrolling search and click helpers ----------------
+    def _find_elements_by_title(self, title):
+        # Use regex to match partial titles; allow any control_type (webview often exposes Pane/Text)
+        try:
+            return self.main_window.child_window(title_re=f".*{title}.*", top_level_only=False)
+        except Exception:
+            return None
+ 
+    def _scroll_search_and_click(self, title, max_scrolls=12, pause=0.8):
+        """
+        Scrolls within the HP app window and tries to find and click the element by title.
+        Handles duplicates and clicks the first visible, enabled element.
+        """
+        # Make sure HP window is focused to keep scrolls inside the app
+        hp_list = gw.getWindowsWithTitle(self.app_title)
+        if hp_list:
+            try:
+                hp_list[0].activate()
+                time.sleep(0.5)
+            except Exception:
+                pass
+ 
+        # Try without scroll first
+        if self._try_click_title_once(title):
+            return True
+ 
+        # Scroll progressively and retry
+        for i in range(max_scrolls):
+            # Page down helps in webview content
+            self.main_window.type_keys("{PGDN}")
+            time.sleep(pause)
+            if self._try_click_title_once(title):
+                return True
+ 
+        # Final attempt from top: go to top and scroll again
+        self.main_window.type_keys("^{HOME}")
+        time.sleep(pause)
+        if self._try_click_title_once(title):
+            return True
+        for i in range(max_scrolls // 2):
+            self.main_window.type_keys("{PGDN}")
+            time.sleep(pause)
+            if self._try_click_title_once(title):
+                return True
+ 
+        print(f"Element not found after scrolling: {title}")
+        return False
+ 
+    def _try_click_title_once(self, title):
+        """
+        Attempts to resolve title and click the element's center using the element's rectangle.
+        Returns True if a click was executed; False otherwise.
+        """
+        try:
+            candidate = self._find_elements_by_title(title)
+            if not candidate:
+                return False
+ 
+            # Try direct exists
+            if candidate.exists(timeout=2):
+                elem = candidate
+            else:
+                # If wrapper returns list-like, handle duplicates via .find_all()
+                try:
+                    elems = candidate.parent().children()  # broad pull
+                except Exception:
+                    elems = []
+ 
+                # Narrow down matches by title substring
+                filtered = []
+                for e in elems:
+                    try:
+                        t = getattr(e, 'window_text', lambda: "")()
+                        if title.lower() in t.lower():
+                            filtered.append(e)
+                    except Exception:
+                        continue
+ 
+                if not filtered:
+                    return False
+ 
+                # Pick first visible, enabled element if possible
+                elem = None
+                for e in filtered:
+                    try:
+                        if hasattr(e, 'is_visible') and e.is_visible() and hasattr(e, 'is_enabled') and e.is_enabled():
+                            elem = e
+                            break
+                    except Exception:
+                        continue
+                if elem is None:
+                    elem = filtered[0]
+ 
+            # Click via rectangle center to avoid taskbar misclicks
+            rect = elem.rectangle()
+            center_x = int((rect.left + rect.right) / 2)
+            center_y = int((rect.top + rect.bottom) / 2)
+ 
+            # Ensure coordinates belong to HP window bounds
+            hp_rect = self.main_window.rectangle()
+            if not (hp_rect.left <= center_x <= hp_rect.right and hp_rect.top <= center_y <= hp_rect.bottom):
+                # If rect seems off, fallback to clicking near top-left inside HP window to avoid taskbar
+                center_x = hp_rect.left + 250
+                center_y = hp_rect.top + 350
+ 
+            pyautogui.moveTo(center_x, center_y, duration=0.1)
+            pyautogui.click()
+            return True
+ 
+        except Exception:
+            return False
+ 
+    # ---------------- Click Energy Efficiency Links ----------------
+    def click_energy_links(self):
+        """Click all energy efficiency guide links in the Energy Consumption page"""
+        time.sleep(5)
+        self.main_window.type_keys("{PGDN}")
+        time.sleep(5)
+ 
+        guide_titles = [
+             "Learn more",
+             "Learn more about Go Beyond",
+                    ]
+ 
+        success = False
+        for title in guide_titles:
+            try:
+                link = self.main_window.child_window(title=title, control_type="Hyperlink")
+                if link.exists(timeout=10):
+                    link.click_input()
+                    print(f"Clicked: {title}")
+                    time.sleep(10)
+                    timings.wait_until_passes(5, 0.5, lambda: True)  # simulate wait for page load
+                    success = True
+                else:
+                    print(f"Link not found: {title}")
+            except Exception as e:
+                print(f"Error clicking '{title}': {e}")
+ 
+        return success
+ 
+    # ---------------- Click Button type links ----------------
+    def click_energy_buttonlinks(self):
+        time.sleep(5)
+ 
+        guide_titles = [
+            "How to adjust power and sleep settings in Windows",
+            "Caring for your battery in Windows",
+            "Battery saving tips for Windows",
+            "Change the power mode for your Windows PC",
+            "Manage background activity for apps in Windows",
+            "Learn more about energy recommendations - Microsoft Support",
+            "Energy and the Environment - Epa.gov"
+        ]
+ 
+        success = False
+        for title in guide_titles:
+            try:
+                clicked = self._scroll_search_and_click(title)
+                if clicked:
+                    print(f"Clicked button: {title}")
+                else:
+                    print(f"Button not found in HP app: {title}")
+                success |= self._detect_and_close_browser_after_click(title, wait_time=30)
+            except Exception as e:
+                print(f"Error clicking button '{title}': {e}")
+ 
+        return success
+ 
+    # ---------------- Browser detection and closing ----------------
+    def _detect_and_close_browser_after_click(self, title, wait_time=30):
+        """
+        Detects a browser window even if an existing window/tab is reused, and closes it.
+        1) Wait for browser process to be present.
+        2) If any browser window exists after click, treat as opened.
+        3) Prefer the active window if it's Edge/Chrome/Firefox; else pick the last in list.
+        """
+        try:
+            # Wait until browser process is alive (handles fresh launch and already-running)
+            def browser_proc_alive():
+                for p in psutil.process_iter(['name']):
+                    if p.info['name'] in ('msedge.exe', 'chrome.exe', 'firefox.exe'):
+                        return True
+                return False
+ 
+            timings.wait_until_passes(20, 1, browser_proc_alive)
+ 
+            # Gather browser windows
+            def collect_browser_windows():
+                wins = gw.getAllWindows()
+                return [w for w in wins if any(k in w.title for k in ["Edge", "Chrome", "Firefox"])]
+ 
+            # Wait a bit to allow tab to load
+            time.sleep(2)
+            browsers = collect_browser_windows()
+ 
+            if not browsers:
+                print(f"No browser window detected for: {title}")
+                return False
+ 
+            # Prefer active window if it's a browser
+            active = gw.getActiveWindow()
+            browser = None
+            if active and any(k in active.title for k in ["Edge", "Chrome", "Firefox"]):
+                browser = active
+            else:
+                browser = browsers[-1]  # pick most recent
+ 
+            print(f"Browser opened for: {title} -> {browser.title}")
+            try:
+                browser.activate()
+                time.sleep(1)
+                browser.maximize()
+            except Exception:
+                pass
+ 
+            # Allow content to render
+            time.sleep(wait_time)
+ 
+            # Close the browser window/tab
+            try:
+                browser.close()
+                print(f"Browser closed for: {title}")
+            except Exception:
+                # Fallback: Alt+F4 on active window (only if it is a browser)
+                if any(k in gw.getActiveWindow().title for k in ["Edge", "Chrome", "Firefox"]):
+                    pyautogui.hotkey('alt', 'f4')
+                    print(f"Browser closed via Alt+F4 for: {title}")
+ 
+            # Refocus HP app
+            hp_window = gw.getWindowsWithTitle(self.app_title)
+            if hp_window:
+                try:
+                    hp_window[0].activate()
+                    print("HP app refocused")
+                except Exception:
+                    pass
+ 
+            return True
+ 
+        except Exception as e:
+            print(f"closing browser for '{title}': {e}")
+            return False
+ 
+ 
+# ---------------- Run Example ----------------
+if __name__ == "__main__":
+    hp = MyHP()
+    if hp.open_hp_application():
+        if hp.connect_to_application():
+            if hp.navigate_to_EnergyConsumption():
+                print("Success - Energy Consumption page opened")
+                if hp.click_energy_links():
+                    print("Success - clicked hyperlink type links")
+                if hp.click_energy_buttonlinks():
+                    print("Success - clicked button type links")
