@@ -1,0 +1,335 @@
+import pyautogui
+import pygetwindow as gw
+from pywinauto import Application
+import os
+import sys
+import io
+import time
+from pywinauto.timings import Timings
+from pywinauto.timings import wait_until_passes
+import re
+from pywinauto.findwindows import find_elements
+from pywinauto.mouse import move, click
+ 
+ 
+# image_path = r"C:\Users\cmit\Desktop\A Test\Baseline\BM.png"
+class MyHP:
+    TIMEOUT = 5
+ 
+    def __init__(self):
+        self.application = None
+        self.main_window = None
+        self.app_title = "HP"
+        self.baseline_folder = r"C:\Users\cmit\Desktop\HPX\Baseline"
+        # if not os.path.exists(self.baseline_folder):
+        #     os.makedirs(self.baseline_folder)
+ 
+    # ---------------- Logger ----------------
+    def _log_result(self, test_name, status, message=""):
+        result = "PASS" if status else "FAIL"
+        print(f"[{result}] {test_name}: {message}")
+ 
+    # ---------------- Open HP Application ----------------
+    def open_hp_application(self):
+        """Open HP application using Windows search"""
+        try:
+            pyautogui.press('winleft')
+            time.sleep(1)
+            pyautogui.write(self.app_title)
+            time.sleep(1)
+            pyautogui.press('enter')
+            time.sleep(5)
+ 
+            active_window = gw.getActiveWindow()
+            if active_window and self.app_title in active_window.title:
+                active_window.maximize()
+                time.sleep(2)
+                self._log_result("Open Application", True)
+                return True
+            else:
+                self._log_result("Open Application", False, "Wrong window focused")
+                return False
+        except Exception as e:
+            self._log_result("Open Application", False, str(e))
+            return False
+ 
+    # ---------------- Connect to HP Application ----------------
+    def connect_to_application(self):
+        try:
+            # Wait for the app to open properly
+            time.sleep(3)
+ 
+            # Get all open windows containing 'HP'
+            hp_windows = [w for w in gw.getAllTitles() if "HP" in w and w.strip() != ""]
+ 
+            if not hp_windows:
+                self._log_result("Connect to Application", False, "No HP window found")
+                return False
+ 
+            # Print them to console for visibility
+            print("\n[INFO] Detected HP-related windows:")
+            for w in hp_windows:
+                print(f"   - {w}")
+ 
+            # Try to pick the main HP App window
+            # (Adjust this condition to your exact app title if needed)
+            main_title = None
+            for w in hp_windows:
+                if "HP" in w and "Service" not in w and "Support" not in w and "Quick" not in w:
+                    main_title = w
+                    break
+ 
+            if not main_title:
+                self._log_result("Connect to Application", False, "Main HP window not found")
+                return False
+ 
+            print(f"\n[INFO] Connecting to window: {main_title}")
+ 
+            # Connect to that specific window
+            self.application = Application(backend="uia").connect(title=main_title)
+            self.main_window = self.application.window(title=main_title)
+            time.sleep(2)
+ 
+            self._log_result("Connect to Application", True, f"Connected to: {main_title}")
+           
+            # self.main_window.print_control_identifiers()
+            return True
+ 
+        except Exception as e:
+            self._log_result("Connect to Application", False, str(e))
+            return False
+ 
+ 
+    def dump_ui_tree_to_file(self):
+        """Dump the full UI tree of the current main window to a text file."""
+        if not self.main_window:
+            self._log_result("Dump UI Tree", False, "Application not connected")
+            return False
+        try:
+            dump_path = os.path.join(self.baseline_folder, "ui_dump.txt")
+            with open(dump_path, "w", encoding="utf-8") as f:
+                buffer = io.StringIO()
+                sys.stdout = buffer
+                self.main_window.print_control_identifiers()
+                sys.stdout = sys.__stdout__  # Reset stdout
+                f.write(buffer.getvalue())
+                buffer.close()
+            self._log_result("Dump UI Tree", True, f"Saved to {dump_path}")
+            return True
+        except Exception as e:
+            sys.stdout = sys.__stdout__  # Ensure stdout is reset
+            self._log_result("Dump UI Tree", False, str(e))
+            return False
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+    def navigate_to_Battery(self):
+        """Navigate to the Battery module inside PC Device page"""
+        if not self.main_window:
+            self._log_result("Navigate to Battery", False, "Application not connected")
+            return False
+        try:
+            time.sleep(5)  # wait for PC Device page to load
+            self.main_window.type_keys("{PGDN}")
+            time.sleep(2)
+            Battery_btn = self.main_window.child_window(title="Battery manager", auto_id="PcDeviceCards.PcDeviceActionCards.PcbatterymanagerXSettingsCard", control_type="Button")
+            if Battery_btn.exists(timeout=10):  
+                Battery_btn.click_input()
+                time.sleep(5)
+                self._log_result("Navigate to Battery manager", True)
+                return True
+            else:
+                self._log_result("Navigate to Battery page", False, "Battery module button not found")
+                return False
+        except Exception as e:
+            self._log_result("Navigate to Battery page", False, str(e))
+            return False
+ 
+ 
+ 
+ 
+ 
+ 
+    def hover_info_icon(self):
+        info_icon = self.main_window.child_window(
+         title_re="Maximum battery capacity.*",
+        auto_id="BatteryManager.BatteryManager.MaximumCapacityTooltip",
+        control_type="Image"
+        ).wait('exists enabled visible ready', timeout=10)
+        rect = info_icon.rectangle()
+        move(coords=(rect.mid_point().x, rect.mid_point().y))  # <-- hover
+        click(coords=(rect.mid_point().x, rect.mid_point().y))  # <-- hover
+ 
+        return True
+        # info_icon.click_input()
+ 
+ 
+ 
+ 
+ 
+    def validate_max_capacity_tooltip(self, expected_text):
+ 
+    # Locate tooltip icon
+        info_icon = self.main_window.child_window(
+            auto_id="BatteryManager.BatteryManager.MaximumCapacityTooltip",
+            control_type="Image"
+        ).wait("exists enabled visible ready", timeout=10)
+ 
+        # Get actual tooltip text from element metadata
+        actual_text = info_icon.element_info.name.strip()
+ 
+        print("Actual Tooltip:", actual_text)
+ 
+        # Compare
+        if actual_text == expected_text:
+            print("PASS: Tooltip text matches expected.")
+            return True
+        else:
+            print("FAIL: Tooltip text does not match expected.")
+            print(f"Expected: {expected_text}")
+            print(f"Actual:   {actual_text}")
+            return False
+ 
+ 
+           
+    def hover_Charge_info_icon(self):
+        self.main_window.type_keys("{PGDN}")
+        info_icon = self.main_window.child_window(
+        auto_id="BatteryManager.BatteryManager.ChargingOptionTooltip",
+        control_type="Image"
+        ).wait('exists enabled visible ready', timeout=10)
+        rect = info_icon.rectangle()
+ 
+        # Hover & click to trigger
+        move(coords=(rect.mid_point().x, rect.mid_point().y))
+        click(coords=(rect.mid_point().x, rect.mid_point().y))
+        time.sleep(1.2)
+ 
+        return True
+ 
+ 
+
+    def validate_charge_options_tooltips(self, expected_text):
+ 
+    # Locate tooltip icon
+        info_icon = self.main_window.child_window(
+        auto_id="BatteryManager.BatteryManager.ChargingOptionTooltip",
+        control_type="Image"
+        ).wait("exists enabled visible ready", timeout=10)
+ 
+    # Get actual tooltip text from element metadata
+        actual_text = info_icon.element_info.name.strip()
+ 
+        print("Actual Tooltip:", actual_text)
+ 
+    # Compare
+        if actual_text == expected_text:
+            print("PASS: Charge Option Tooltip text matches expected.")
+            return True
+        else:
+            print("FAIL: Charge Option Tooltip text does not match expected.")
+            print(f"Expected: {expected_text}")
+            print(f"Actual:   {actual_text}")
+            return False
+ 
+   
+ 
+ 
+    def click_optimize_battery_performance(self):
+        try:
+            # Find the radio button directly by auto_id
+            rb = self.main_window.child_window(
+                auto_id="BatteryManager.BatteryManager.OptimizeBatteryPerformance__radio-button",
+                control_type="RadioButton"
+            )
+ 
+            # Click directly on the WindowSpecification
+            # rb.scroll_into_view()  # optional, ensures visible
+            rb.click_input()
+            print("Radio button clicked successfully")
+            return True
+ 
+        except Exception as e:
+            print("ERROR:", e)
+            return False
+ 
+ 
+ 
+ 
+    def navigate_back_to_my_computer(self):
+        try:
+            # Scroll up a bit
+            self.main_window.type_keys("{PGUP}")
+            time.sleep(3)
+ 
+            # Locate "My computer" button (adjust auto_id if needed)
+            my_computer_btn = self.main_window.child_window(
+                title="My Computer", auto_id="NavBar.NavBarView.BackButton", control_type="Button"
+            ).wait("exists enabled visible ready", timeout=10)
+ 
+            # my_computer_btn.click_input()
+            for i in range(1):
+                my_computer_btn.click_input()
+                print(f"Click {i+1} done on 'My Computer' button")
+                time.sleep(1)
+            print("Navigated back to: My computer")
+            return True
+ 
+        except Exception as e:
+            print("ERROR navigating back:", e)
+            return False
+ 
+ 
+ 
+   
+    def contextual_config_Optimize(self, expected_text="Optimize battery performance"):
+        try:
+ 
+            time.sleep(5)  # wait for PC Device page to load
+            self.main_window.type_keys("{PGDN}")
+            time.sleep(3)
+            # Locate the text under Battery Manager card
+            battery_manager_text = self.main_window.child_window(
+                title="Optimize battery performance", auto_id="PcDeviceCards.PcDeviceActionCards.PcbatterymanagerXSettingsCard__subheader", control_type="Text"
+            ).window_text()  # get the text displayed in UI
+ 
+            # Compare with expected text
+            if battery_manager_text.strip() == expected_text:
+                print(f"PASS: Battery manager shows selected option: '{battery_manager_text}'")
+                return True
+            else:
+                print(f"FAIL: Battery manager shows '{battery_manager_text}', expected '{expected_text}'")
+                return False
+ 
+        except Exception as e:
+            print("ERROR verifying battery manager selection:", e)
+            return False
+ 
+ 
+ 
+ 
+# ---------------- Main ----------------
+if __name__ == "__main__":
+    hp_app = MyHP()
+    if hp_app.open_hp_application():
+        if hp_app.connect_to_application():
+            # if hp_app.dump_ui_tree_to_file():
+                if hp_app.navigate_to_Battery():
+                    # if hp_app.page_scroll():
+                        # if hp_app.scroll_until_click(target_title="Optimize-battery-performance", target_auto_id="BatteryManager.BatteryManager.OptimizeBatteryPerformance__radio-button"):
+                          if hp_app.hover_info_icon():
+                            if hp_app.validate_max_capacity_tooltip("Maximum battery capacity will naturally decrease with shelf life, time, usage, environment, temperature, system configuration, loaded apps, features, power management settings, and other factors."):
+                                if hp_app.hover_Charge_info_icon():
+                                    if hp_app.validate_charge_options_tooltips("If you uninstall the HP app, your current settings will be preserved and controlled by the BIOS."):
+                                # if hp_app.verify_charging_options_tooltip():
+                                        if hp_app.click_optimize_battery_performance():
+                                            # if hp_app.dump_ui_tree_to_file():
+                                                if hp_app.navigate_back_to_my_computer():
+                                                    if hp_app.contextual_config_Optimize():
+                                                        if hp_app.dump_ui_tree_to_file():
+                                                            print("success")
