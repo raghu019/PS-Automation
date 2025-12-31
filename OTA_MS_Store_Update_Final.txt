@@ -1,0 +1,277 @@
+import time
+import subprocess
+import os
+import glob
+from pywinauto import Application, mouse
+
+print("01 OTA update automation Script file loaded")
+
+# =========================
+# CONFIGURATION
+# =========================
+BUILD_FOLDER = r"C:\Users\PSOTA-Automate\Downloads\OTA 100 build"
+APP_NAME = "HP"
+APP_TITLE_REGEX = ".*HP.*"
+CLICK_DELAY = 10
+
+# =========================
+# STEP 1: INSTALL MSIX
+# =========================
+def install_msix_from_folder(build_folder):
+    msix_files = glob.glob(os.path.join(build_folder, "*.msix")) + \
+                 glob.glob(os.path.join(build_folder, "*.msixbundle"))
+
+    if not msix_files:
+        raise FileNotFoundError("No MSIX/MSIXBUNDLE files found!")
+
+    for installer_path in msix_files:
+        print(f"------------>>Installing old HP build: {installer_path}")
+
+        cmd = [
+            "powershell",
+            "-ExecutionPolicy", "Bypass",
+            "-Command",
+            f'Add-AppxPackage -Path "{installer_path}" -ForceApplicationShutdown'
+        ]
+
+        result = subprocess.run(cmd, capture_output=True, text=True)
+
+        if result.returncode != 0:
+            print("MSIX installation failed ❌")
+            print(result.stderr)
+            return False
+
+        print("03 Old HP build installation completed ✅")
+
+    return True
+
+# =========================
+# STEP 2: LAUNCH HP APP
+# =========================
+def launch_hp_app():
+    print("04 Launching HP app...........🚀")
+    subprocess.Popen(["cmd", "/c", "start", "HP:"])
+    time.sleep(5)
+
+    start_time = time.time()
+    while time.time() - start_time < 30:
+        try:
+            app = Application(backend="uia").connect(title_re=APP_TITLE_REGEX)
+            win = app.top_window()
+            win.set_focus()
+            win.maximize()
+            print("05 HP app launched and maximized................!")
+            return
+        except Exception:
+            time.sleep(2)
+
+# =========================
+# BUILD VERSION CHECK
+# =========================
+def get_hp_app_version_prod():
+    cmd = [
+        "powershell",
+        "-Command",
+        f"Get-AppxPackage -Name *{APP_NAME}* | Select-Object -ExpandProperty Version"
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    versions = [v.strip() for v in result.stdout.splitlines() if v.strip()]
+
+    for v in versions:
+        p = v.split(".")
+        if len(p) == 4 and p[1].isdigit() and int(p[1]) >= 50000:
+            return ".".join(str(int(x)) for x in p)
+
+    return None
+
+def get_hp_app_version_new(old_version):
+    cmd = [
+        "powershell",
+        "-Command",
+        f"Get-AppxPackage -Name *{APP_NAME}* | Select-Object -ExpandProperty Version"
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    versions = [v.strip() for v in result.stdout.splitlines() if v.strip()]
+
+    old_parts = [int(x) for x in old_version.split(".")]
+
+    for v in versions:
+        p = v.split(".")
+        if len(p) == 4 and p[1].isdigit() and int(p[1]) >= 50000:
+            if [int(x) for x in p] > old_parts:
+                return ".".join(str(int(x)) for x in p)
+
+    return None
+
+# =========================
+# CLOSE HP APP
+# =========================
+def close_hp_app():
+    try:
+        app = Application(backend="uia").connect(title_re=APP_TITLE_REGEX, timeout=5)
+        app.top_window().close()
+        time.sleep(2)
+    except Exception:
+        subprocess.run(["taskkill", "/F", "/IM", "HPApp.exe"], capture_output=True)
+
+# =========================
+# MICROSOFT STORE
+# =========================
+def launch_microsoft_store():
+    subprocess.Popen(["cmd", "/c", "start", "ms-windows-store:"])
+    print("09 Launching Microsoft Store..........⏳")
+    return connect_store_window()
+
+def connect_store_window(timeout=30):
+    start = time.time()
+    while time.time() - start < timeout:
+        try:
+            app = Application(backend="uia").connect(title_re=".*Microsoft Store.*")
+            win = app.window(title_re=".*Microsoft Store.*")
+            if win.exists() and win.is_visible():
+                return win
+        except Exception:
+            pass
+        time.sleep(1)
+    raise TimeoutError("Microsoft Store window not found")
+
+def safe_click(ctrl):
+    """Handles Invoke-pattern failures safely"""
+    try:
+        ctrl.invoke()
+    except Exception:
+        ctrl.click_input()
+
+def open_downloads():
+    win = connect_store_window()
+    win.set_focus()
+
+    start = time.time()
+    while time.time() - start < 20:
+        for ctrl in win.descendants():
+            if "download" in (ctrl.element_info.name or "").lower():
+                safe_click(ctrl)
+                print("10 Downloads page opened ✅")
+                time.sleep(0.5)
+                return
+        time.sleep(1)
+
+    raise RuntimeError("Downloads button not found")
+
+def click_hp_app():
+    win = connect_store_window()
+    win.set_focus()
+
+    for _ in range(10):
+        for ctrl in win.descendants():
+            if (ctrl.element_info.name or "").strip() == APP_NAME:
+                r = ctrl.rectangle()
+                mouse.click(coords=(r.left + 20, r.top + r.height() // 2))
+                print("11 HP app selected in Downloads ✅")
+                time.sleep(1)
+                return
+        win.type_keys("{PGDN}")
+        time.sleep(5)
+
+    raise RuntimeError("HP app not found in Downloads")
+
+# =========================
+# UPDATE / RETRY WITH RECOVERY
+# =========================
+def update_until_done():
+    win = connect_store_window()
+    print("12 Monitoring Update / Retry buttons..........⏳")
+
+    start = time.time()
+    last_seen_button = time.time()
+    updates_clicked = False
+    recovery_done = False   # ✅ ONE-TIME recovery flag
+
+    while time.time() - start < 180:
+        win.set_focus()
+        found_update_or_retry = False
+
+        for ctrl in win.descendants():
+            name = (ctrl.element_info.name or "").lower().strip()
+
+            # ✅ EXIT only if update REALLY happened
+            if name == "open" and ctrl.is_visible() and updates_clicked:
+                print("✅ Update completed. Open button detected.")
+                return True
+
+            if name in ("update", "retry") and ctrl.is_visible():
+                safe_click(ctrl)
+                print(f"✅ Clicked {ctrl.element_info.name}")
+                updates_clicked = True
+                found_update_or_retry = True
+                last_seen_button = time.time()
+                time.sleep(CLICK_DELAY)
+
+        # 🔁 ONE-TIME recovery ONLY
+        if not found_update_or_retry:
+            if not recovery_done and time.time() - last_seen_button > 20:
+                print("⚠ No Update/Retry for 20s → Clicking Downloads once")
+                open_downloads()
+                click_hp_app()
+                recovery_done = True      # ✅ block future recover_
+
+def click_open_app():
+    win = connect_store_window()
+    win.set_focus()
+    for _ in range(10):
+        for ctrl in win.descendants():
+            if (ctrl.element_info.name or "").lower() == "open":
+                safe_click(ctrl)
+                print("13 HP app launched after update.............🚀")
+                return
+        time.sleep(0.5)
+
+def close_microsoft_store():
+    subprocess.run(["taskkill", "/F", "/IM", "WinStore.App.exe"], capture_output=True)
+    time.sleep(1)
+
+# =========================
+# MAIN FLOW
+# =========================
+def main():
+    print("02 Starting OTA update Automation Flow")
+
+    if not install_msix_from_folder(BUILD_FOLDER):
+        return
+
+    launch_hp_app()
+
+    old_ver = get_hp_app_version_prod()
+    if not old_ver:
+        print("❌ Old build is not Prod")
+        close_hp_app()
+        return
+
+    print(f"06 Valid old HP Prod build version detected ✅ : {old_ver}")
+
+    close_hp_app()
+    launch_microsoft_store()
+    open_downloads()
+    click_hp_app()
+
+    if update_until_done():
+        click_open_app()
+        time.sleep(3)
+        close_microsoft_store()
+        close_hp_app()
+
+    new_ver = get_hp_app_version_new(old_ver)
+
+    print(f"➡ Old Build : {old_ver}")
+    print(f"➡ New Build : {new_ver}")
+
+    if new_ver and [int(x) for x in new_ver.split(".")] > [int(x) for x in old_ver.split(".")]:
+        print("14 OTA update flow completed successfully-----!!!")
+    else:
+        print("❌ OTA update validation failed due to invalid build in MS store")
+
+# =========================
+# RUN
+# =========================
+if __name__ == "__main__":
+    main()
