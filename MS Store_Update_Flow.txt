@@ -1,0 +1,36 @@
+START
+  │
+  ├─► Install Old HP Build (MSIX)
+  │
+  ├─► Launch HP App
+  │
+  ├─► Read & Validate Old Build Version (Prod)
+  │
+  ├─► Close HP App
+  │
+  ├─► Launch Microsoft Store
+  │
+  ├─► Open Downloads Page
+  │
+  ├─► Select HP App
+  │
+  ├─► Monitor Update / Retry
+  │       │
+  │       ├─► Click Update / Retry (if visible)
+  │       │
+  │       ├─► One-time Recovery (Downloads → HP) if stuck
+  │       │
+  │       └─► Detect Open Button (Update completed)
+  │
+  ├─► Launch Updated HP App
+  │
+  ├─► Close Microsoft Store
+  │
+  ├─► Close HP App
+  │
+  ├─► Read New Build Version
+  │
+  ├─► Compare Old vs New Build
+  │
+  └─► PASS / FAIL
+END
