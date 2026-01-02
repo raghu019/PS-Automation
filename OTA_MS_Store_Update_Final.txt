@@ -14,6 +14,68 @@ APP_NAME = "HP"
 APP_TITLE_REGEX = ".*HP.*"
 CLICK_DELAY = 10
 
+def preflight_checks():
+    print("=== Pre-flight Environment Checks ===")
+
+    # ---------- Admin Check ----------
+    try:
+        import ctypes
+        if not ctypes.windll.shell32.IsUserAnAdmin():
+            raise PermissionError("Script must be run as Administrator")
+        print("✅ Admin privileges confirmed")
+    except Exception as e:
+        print(f"❌ Admin check failed: {e}")
+        exit(1)
+
+    # ---------- Python Packages ----------
+    required_pkgs = ["pywinauto", "win32api", "comtypes"]
+    for pkg in required_pkgs:
+        try:
+            __import__(pkg)
+            print(f"✅ Python package OK: {pkg}")
+        except ImportError:
+            print(f"❌ Missing Python package: {pkg}")
+            exit(1)
+
+    # ---------- PowerShell ----------
+    try:
+        subprocess.run(
+            ["powershell", "-Command", "$PSVersionTable.PSVersion"],
+            check=True,
+            capture_output=True
+        )
+        print("✅ PowerShell available")
+    except Exception:
+        print("❌ PowerShell not available")
+        exit(1)
+
+    # ---------- Microsoft Store ----------
+    store_check = subprocess.run(
+        ["powershell", "-Command", "Get-AppxPackage Microsoft.WindowsStore"],
+        capture_output=True,
+        text=True
+    )
+    if not store_check.stdout.strip():
+        print("❌ Microsoft Store not installed")
+        exit(1)
+    print("✅ Microsoft Store detected")
+
+    # ---------- BUILD FOLDER ----------
+    if not os.path.exists(BUILD_FOLDER):
+        print(f"❌ BUILD_FOLDER not found: {BUILD_FOLDER}")
+        exit(1)
+    print("✅ Build folder exists")
+
+    # ---------- MSIX Files ----------
+    msix_files = glob.glob(os.path.join(BUILD_FOLDER, "*.msix")) + \
+                 glob.glob(os.path.join(BUILD_FOLDER, "*.msixbundle"))
+    if not msix_files:
+        print("❌ No MSIX/MSIXBUNDLE files found")
+        exit(1)
+    print(f"✅ MSIX files found: {len(msix_files)}")
+
+    print("🎉 Pre-flight checks PASSED\n")
+
 # =========================
 # STEP 1: INSTALL MSIX
 # =========================
@@ -119,7 +181,7 @@ def close_hp_app():
 # =========================
 def launch_microsoft_store():
     subprocess.Popen(["cmd", "/c", "start", "ms-windows-store:"])
-    print("09 Launching Microsoft Store..........⏳")
+    print("07 Launching Microsoft Store..........⏳")
     return connect_store_window()
 
 def connect_store_window(timeout=30):
@@ -151,7 +213,7 @@ def open_downloads():
         for ctrl in win.descendants():
             if "download" in (ctrl.element_info.name or "").lower():
                 safe_click(ctrl)
-                print("10 Downloads page opened ✅")
+                print("08 Downloads page opened ✅")
                 time.sleep(0.5)
                 return
         time.sleep(1)
@@ -167,7 +229,7 @@ def click_hp_app():
             if (ctrl.element_info.name or "").strip() == APP_NAME:
                 r = ctrl.rectangle()
                 mouse.click(coords=(r.left + 20, r.top + r.height() // 2))
-                print("11 HP app selected in Downloads ✅")
+                print("09 HP app selected in Downloads ✅")
                 time.sleep(1)
                 return
         win.type_keys("{PGDN}")
@@ -180,12 +242,14 @@ def click_hp_app():
 # =========================
 def update_until_done():
     win = connect_store_window()
-    print("12 Monitoring Update / Retry buttons..........⏳")
+    print("10 Monitoring Update / Retry buttons..........⏳")
 
     start = time.time()
     last_seen_button = time.time()
+
     updates_clicked = False
-    recovery_done = False   # ✅ ONE-TIME recovery flag
+    recovery_count = 0
+    last_recovery_time = None
 
     while time.time() - start < 180:
         win.set_focus()
@@ -194,7 +258,7 @@ def update_until_done():
         for ctrl in win.descendants():
             name = (ctrl.element_info.name or "").lower().strip()
 
-            # ✅ EXIT only if update REALLY happened
+            # ✅ EXIT if update really completed
             if name == "open" and ctrl.is_visible() and updates_clicked:
                 print("✅ Update completed. Open button detected.")
                 return True
@@ -207,13 +271,29 @@ def update_until_done():
                 last_seen_button = time.time()
                 time.sleep(CLICK_DELAY)
 
-        # 🔁 ONE-TIME recovery ONLY
-        if not found_update_or_retry:
-            if not recovery_done and time.time() - last_seen_button > 20:
-                print("⚠ No Update/Retry for 20s → Clicking Downloads once")
+        # 🔁 Controlled recovery (MAX 2 times)
+        if not found_update_or_retry and not updates_clicked:
+
+            # First recovery after 20 seconds
+            if recovery_count == 0 and time.time() - last_seen_button > 20:
+                print("⚠ No Update/Retry for 20s → Recovery #1")
                 open_downloads()
                 click_hp_app()
-                recovery_done = True      # ✅ block future recover_
+                recovery_count = 1
+                last_recovery_time = time.time()
+
+            # Second recovery after 1 minute from first recovery
+            elif recovery_count == 1 and time.time() - last_recovery_time > 60:
+                print("⚠ Still no Update/Retry after 1 min → Recovery #2")
+                open_downloads()
+                click_hp_app()
+                recovery_count = 2   # ❌ No more recovery after this
+
+        time.sleep(1)
+
+    print("❌ Update did not complete within timeout")
+    return False
+
 
 def click_open_app():
     win = connect_store_window()
@@ -222,7 +302,7 @@ def click_open_app():
         for ctrl in win.descendants():
             if (ctrl.element_info.name or "").lower() == "open":
                 safe_click(ctrl)
-                print("13 HP app launched after update.............🚀")
+                print("11 HP app launched after update.............🚀")
                 return
         time.sleep(0.5)
 
@@ -234,6 +314,7 @@ def close_microsoft_store():
 # MAIN FLOW
 # =========================
 def main():
+    preflight_checks()
     print("02 Starting OTA update Automation Flow")
 
     if not install_msix_from_folder(BUILD_FOLDER):
@@ -266,7 +347,7 @@ def main():
     print(f"➡ New Build : {new_ver}")
 
     if new_ver and [int(x) for x in new_ver.split(".")] > [int(x) for x in old_ver.split(".")]:
-        print("14 OTA update flow completed successfully-----!!!")
+        print("12 OTA update flow completed successfully-----!!!")
     else:
         print("❌ OTA update validation failed due to invalid build in MS store")
 
