@@ -9,6 +9,7 @@ print("01 OTA update automation Script file loaded")
 # =========================
 # CONFIGURATION
 # =========================
+
 BUILD_FOLDER = r"C:\Users\PSOTA-Automate\Downloads\OTA 100 build"
 APP_NAME = "HP"
 APP_TITLE_REGEX = ".*HP.*"
@@ -22,9 +23,9 @@ def preflight_checks():
         import ctypes
         if not ctypes.windll.shell32.IsUserAnAdmin():
             raise PermissionError("Script must be run as Administrator")
-        print("✅ Admin privileges confirmed")
+        print("Admin privileges confirmed")
     except Exception as e:
-        print(f"❌ Admin check failed: {e}")
+        print(f"Admin check failed: {e}")
         exit(1)
 
     # ---------- Python Packages ----------
@@ -32,9 +33,9 @@ def preflight_checks():
     for pkg in required_pkgs:
         try:
             __import__(pkg)
-            print(f"✅ Python package OK: {pkg}")
+            print(f"Python package OK: {pkg}")
         except ImportError:
-            print(f"❌ Missing Python package: {pkg}")
+            print(f"Missing Python package: {pkg}")
             exit(1)
 
     # ---------- PowerShell ----------
@@ -44,9 +45,9 @@ def preflight_checks():
             check=True,
             capture_output=True
         )
-        print("✅ PowerShell available")
+        print("PowerShell available")
     except Exception:
-        print("❌ PowerShell not available")
+        print("PowerShell not available")
         exit(1)
 
     # ---------- Microsoft Store ----------
@@ -56,25 +57,25 @@ def preflight_checks():
         text=True
     )
     if not store_check.stdout.strip():
-        print("❌ Microsoft Store not installed")
+        print("Microsoft Store not installed")
         exit(1)
-    print("✅ Microsoft Store detected")
+    print("Microsoft Store detected")
 
     # ---------- BUILD FOLDER ----------
     if not os.path.exists(BUILD_FOLDER):
-        print(f"❌ BUILD_FOLDER not found: {BUILD_FOLDER}")
+        print(f" BUILD_FOLDER not found: {BUILD_FOLDER}")
         exit(1)
-    print("✅ Build folder exists")
+    print("Build folder exists")
 
     # ---------- MSIX Files ----------
     msix_files = glob.glob(os.path.join(BUILD_FOLDER, "*.msix")) + \
                  glob.glob(os.path.join(BUILD_FOLDER, "*.msixbundle"))
     if not msix_files:
-        print("❌ No MSIX/MSIXBUNDLE files found")
+        print("No MSIX/MSIXBUNDLE files found")
         exit(1)
-    print(f"✅ MSIX files found: {len(msix_files)}")
+    print(f"MSIX files found: {len(msix_files)}")
 
-    print("🎉 Pre-flight checks PASSED\n")
+    print("Pre-flight checks PASSED\n")
 
 # =========================
 # STEP 1: INSTALL MSIX
@@ -99,11 +100,11 @@ def install_msix_from_folder(build_folder):
         result = subprocess.run(cmd, capture_output=True, text=True)
 
         if result.returncode != 0:
-            print("MSIX installation failed ❌")
+            print("MSIX installation failed")
             print(result.stderr)
             return False
 
-        print("03 Old HP build installation completed ✅")
+        print("03 Old HP build installation completed")
 
     return True
 
@@ -111,7 +112,7 @@ def install_msix_from_folder(build_folder):
 # STEP 2: LAUNCH HP APP
 # =========================
 def launch_hp_app():
-    print("04 Launching HP app...........🚀")
+    print("04 Launching HP app...........!")
     subprocess.Popen(["cmd", "/c", "start", "HP:"])
     time.sleep(5)
 
@@ -181,7 +182,7 @@ def close_hp_app():
 # =========================
 def launch_microsoft_store():
     subprocess.Popen(["cmd", "/c", "start", "ms-windows-store:"])
-    print("07 Launching Microsoft Store..........⏳")
+    print("07 Launching Microsoft Store..........!!")
     return connect_store_window()
 
 def connect_store_window(timeout=30):
@@ -213,7 +214,7 @@ def open_downloads():
         for ctrl in win.descendants():
             if "download" in (ctrl.element_info.name or "").lower():
                 safe_click(ctrl)
-                print("08 Downloads page opened ✅")
+                print("08 Downloads page opened")
                 time.sleep(0.5)
                 return
         time.sleep(1)
@@ -229,7 +230,7 @@ def click_hp_app():
             if (ctrl.element_info.name or "").strip() == APP_NAME:
                 r = ctrl.rectangle()
                 mouse.click(coords=(r.left + 20, r.top + r.height() // 2))
-                print("09 HP app selected in Downloads ✅")
+                print("09 HP app selected in Downloads")
                 time.sleep(1)
                 return
         win.type_keys("{PGDN}")
@@ -240,9 +241,9 @@ def click_hp_app():
 # =========================
 # UPDATE / RETRY WITH RECOVERY
 # =========================
-def update_until_done():
+def update_until_done(old_ver):
     win = connect_store_window()
-    print("10 Monitoring Update / Retry buttons..........⏳")
+    print("10 Monitoring Update / Retry buttons.......")
 
     start = time.time()
     last_seen_button = time.time()
@@ -258,25 +259,25 @@ def update_until_done():
         for ctrl in win.descendants():
             name = (ctrl.element_info.name or "").lower().strip()
 
-            # ✅ EXIT if update really completed
+            # EXIT if update really completed
             if name == "open" and ctrl.is_visible() and updates_clicked:
-                print("✅ Update completed. Open button detected.")
+                print("Update completed. Open button detected.")
                 return True
 
             if name in ("update", "retry") and ctrl.is_visible():
                 safe_click(ctrl)
-                print(f"✅ Clicked {ctrl.element_info.name}")
+                print(f"Clicked {ctrl.element_info.name}")
                 updates_clicked = True
                 found_update_or_retry = True
                 last_seen_button = time.time()
                 time.sleep(CLICK_DELAY)
 
-        # 🔁 Controlled recovery (MAX 2 times)
+        # Controlled recovery (MAX 2 times)
         if not found_update_or_retry and not updates_clicked:
 
             # First recovery after 20 seconds
             if recovery_count == 0 and time.time() - last_seen_button > 20:
-                print("⚠ No Update/Retry for 20s → Recovery #1")
+                print("No Update/Retry for 20s → Recovery #1")
                 open_downloads()
                 click_hp_app()
                 recovery_count = 1
@@ -284,16 +285,26 @@ def update_until_done():
 
             # Second recovery after 1 minute from first recovery
             elif recovery_count == 1 and time.time() - last_recovery_time > 60:
-                print("⚠ Still no Update/Retry after 1 min → Recovery #2")
+                print("Still no Update/Retry after 1 min → Recovery #2")
                 open_downloads()
                 click_hp_app()
-                recovery_count = 2   # ❌ No more recovery after this
+                recovery_count = 2 
+                last_recovery_time = time.time()
+
+        elif recovery_count == 2:
+                print("Recovery limit reached (Recovery #3 check)")
+
+                new_ver = get_hp_app_version_new(old_ver)
+
+                if not new_ver:
+                    print("Build still old after recoveries")
+                    return "RESTART_STORE"
+
+                return "UPDATED"
 
         time.sleep(1)
 
-    print("❌ Update did not complete within timeout")
-    return False
-
+    return "TIMEOUT"
 
 def click_open_app():
     win = connect_store_window()
@@ -302,7 +313,7 @@ def click_open_app():
         for ctrl in win.descendants():
             if (ctrl.element_info.name or "").lower() == "open":
                 safe_click(ctrl)
-                print("11 HP app launched after update.............🚀")
+                print("11 HP app launched after update............")
                 return
         time.sleep(0.5)
 
@@ -324,23 +335,36 @@ def main():
 
     old_ver = get_hp_app_version_prod()
     if not old_ver:
-        print("❌ Old build is not Prod")
+        print("Old build is not Prod")
         close_hp_app()
         return
 
-    print(f"06 Valid old HP Prod build version detected ✅ : {old_ver}")
+    print(f"06 Valid old HP Prod build version detected : {old_ver}")
 
     close_hp_app()
+
+    # ---------- First MS Store attempt ----------
     launch_microsoft_store()
     open_downloads()
     click_hp_app()
 
-    if update_until_done():
-        click_open_app()
-        time.sleep(3)
-        close_microsoft_store()
-        close_hp_app()
+    result = update_until_done(old_ver)
 
+    # ---------- Restart MS Store only if required ----------
+    if result == "RESTART_STORE":
+        print("Restarting Microsoft Store flow due to unchanged build")
+
+        close_microsoft_store()
+        launch_microsoft_store()
+        open_downloads()
+        click_hp_app()
+
+        result = update_until_done(old_ver)
+
+    close_microsoft_store()
+    close_hp_app()
+
+    # ---------- Final build validation ----------
     new_ver = get_hp_app_version_new(old_ver)
 
     print(f"➡ Old Build : {old_ver}")
@@ -349,7 +373,7 @@ def main():
     if new_ver and [int(x) for x in new_ver.split(".")] > [int(x) for x in old_ver.split(".")]:
         print("12 OTA update flow completed successfully-----!!!")
     else:
-        print("❌ OTA update validation failed due to invalid build in MS store")
+        print("OTA update validation failed due to invalid build in MS store !!")
 
 # =========================
 # RUN
