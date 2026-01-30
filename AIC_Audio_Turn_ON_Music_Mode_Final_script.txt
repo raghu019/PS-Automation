@@ -1,0 +1,268 @@
+import time
+import pyautogui
+import pygetwindow as gw
+from pywinauto import Application
+import os
+import sys
+import io
+ 
+ 
+class MyHP:
+ 
+    TIMEOUT = 5
+ 
+    def __init__(self):
+        self.application = None
+        self.main_window = None
+        self.app_title = "HP"
+        self.baseline_folder = r"C:\Users\psreb\Desktop\Final Robot\Baseline"
+        self.first_input_focus_done = False
+ 
+        if not os.path.exists(self.baseline_folder):
+            os.makedirs(self.baseline_folder)
+ 
+    def _log_result(self, test_name, status, message=""):
+        if status:
+            print(f"[PASS] {test_name}")
+        else:
+            print(f"[FAIL] {test_name} - {message}")
+ 
+    def open_hp_application(self):
+        pyautogui.press("winleft")
+        time.sleep(1)
+        pyautogui.write(self.app_title)
+        time.sleep(1)
+        pyautogui.press("enter")
+        time.sleep(5)
+ 
+        active_window = gw.getActiveWindow()
+        if active_window and self.app_title in active_window.title:
+            active_window.maximize()
+            self._log_result("Open Application", True)
+            return True
+ 
+        self._log_result("Open Application", False, "Window not detected")
+        return False
+ 
+    def connect_to_application(self):
+        self.application = Application(backend="uia").connect(title_re=self.app_title)
+        self.main_window = self.application.window(title_re=self.app_title)
+        time.sleep(3)
+        self._log_result("Connect to Application", True)
+        return True
+ 
+    # ---------------- Open AIC ----------------
+    def open_aic(self):
+        try:
+            btn = self.main_window.child_window(
+                title="hpaiassistant",
+                control_type="Button"
+            )
+ 
+            if btn.exists(timeout=5):
+                btn.click_input()
+                time.sleep(3)
+                self._log_result("Open AIC", True)
+                return True
+ 
+            self._log_result("Open AIC", False, "AIC button not found")
+            return False
+ 
+        except Exception as e:
+            self._log_result("Open AIC", False, str(e))
+            return False
+ 
+    # ---------------- Click AIC Input Box ----------------
+    def click_aic_input_box(self):
+        try:
+            if not self.first_input_focus_done:
+                for _ in range(5):
+                    pyautogui.press("tab")
+                    time.sleep(0.15)
+ 
+                pyautogui.press("enter")
+                time.sleep(0.5)
+ 
+                self.first_input_focus_done = True
+                self._log_result("Click AIC Input Box", True, "Focused via TAB")
+                return True
+ 
+            edits = self.main_window.descendants(control_type="Edit")
+            for edit in edits:
+                if edit.is_enabled() and edit.is_visible():
+                    edit.click_input()
+                    time.sleep(0.3)
+                    self._log_result("Click AIC Input Box", True, "Focused via UIA")
+                    return True
+ 
+            self._log_result("Click AIC Input Box", False, "Input not found")
+            return False
+ 
+        except Exception as e:
+            self._log_result("Click AIC Input Box", False, str(e))
+            return False
+ 
+    def click_primary_button(self):
+        buttons = self.main_window.descendants(control_type="Button", title="Primary")
+        if buttons and buttons[0].is_enabled():
+            buttons[0].click_input()
+            self._log_result("Click Primary Button", True)
+            return True
+        self._log_result("Click Primary Button", False)
+        return False
+ 
+    def write_prompt(self, prompt):
+        self.click_aic_input_box()
+        pyautogui.hotkey("ctrl", "a")
+        pyautogui.press("backspace")
+        pyautogui.write(prompt)
+        time.sleep(3)
+        return self.click_primary_button()
+ 
+    def open_sound_settings(self):
+        # 1. Open Settings
+        pyautogui.press("winleft")
+        time.sleep(1)
+        # pyautogui.write("Settings")
+        # time.sleep(1)
+        # pyautogui.press("enter")
+        # time.sleep(5)
+ 
+        # 2. Open Sound settings
+        pyautogui.write("Sound settings")
+        time.sleep(1)
+        pyautogui.press("enter")
+        time.sleep(5)
+ 
+        # 3. Navigate to "All sound devices" using TAB
+        for _ in range(7):
+            pyautogui.press("tab")
+            time.sleep(0.15)
+ 
+        # 4. Press ENTER on "All sound devices"
+        pyautogui.press("enter")
+        time.sleep(5)
+ 
+        # 5. Press ENTER on "Speakers"
+        pyautogui.press("enter")
+ 
+        self._log_result("Open All Sound Devices", True)
+ 
+    def verify_volume_from_ui(self, expected_volume="80"):
+        try:
+            app = Application(backend="uia").connect(title_re="Settings")
+            win = app.window(title_re="Settings")
+ 
+            for txt in win.descendants(control_type="Text"):
+                if txt.window_text().strip() == expected_volume:
+                    self._log_result(f"Verify Speaker Volume ({expected_volume}%)", True)
+                    return True
+ 
+            self._log_result(
+                f"Verify Speaker Volume ({expected_volume}%)",
+                False,
+                "Volume value not matched"
+            )
+            return False
+ 
+        except Exception as e:
+            self._log_result("Verify Speaker Volume", False, "Volume value not matched")
+            return False
+ 
+    def verify_unmute_from_ui(self):
+        try:
+            app = Application(backend="uia").connect(title_re="Settings")
+            win = app.window(title_re="Settings")
+ 
+            mute_btn = win.child_window(
+                title="Mute volume",
+                control_type="Button"
+            )
+ 
+            btn_text = mute_btn.window_text().lower()
+ 
+            if "mute volume" in btn_text:
+                self._log_result("Verify Speaker Unmute", True, "System is unmuted")
+                return True
+            else:
+                self._log_result("Verify Speaker Unmute", False, "System is muted")
+                return False
+ 
+        except Exception as e:
+            self._log_result("Verify Speaker Unmute", False, "Mute/Unmute status not matched")
+            return False
+ 
+ 
+    # ---------------- Close HP Application ----------------
+    def close_hp_application(self):
+        try:
+            close_btn = self.main_window.child_window(
+                auto_id="Close",
+                control_type="Button").wait('exists', timeout=5)
+            close_btn.click_input()
+            time.sleep(2)
+            self._log_result("Close Application", True)
+            return True
+        except Exception as e:
+            self._log_result("Close Application", False, str(e))
+            return False
+    def dump_ui_tree_to_file(self):
+        try:
+            app = Application(backend="uia").connect(title_re="Settings")
+            win = app.window(title_re="Settings")
+ 
+            dump_path = os.path.join(self.baseline_folder, "dump.txt")
+            buffer = io.StringIO()
+ 
+            sys.stdout = buffer
+            time.sleep(2)
+            win.print_control_identifiers()
+            sys.stdout = sys.__stdout__
+ 
+            with open(dump_path, "w", encoding="utf-8") as f:
+                f.write(buffer.getvalue())
+ 
+            buffer.close()
+            self._log_result("Dump Speaker UI", True, f"Saved to {dump_path}")
+            return True
+ 
+        except Exception as e:
+            sys.stdout = sys.__stdout__
+            self._log_result("Dump Speaker UI", False, str(e))
+            return False
+    def close_settings_app(self):
+        try:
+            app = Application(backend="uia").connect(title_re="Settings")
+            win = app.window(title_re="Settings")
+            win.close()
+            time.sleep(2)
+            self._log_result("Close Settings", True)
+            return True
+        except Exception:
+            self._log_result("Close Settings", False)
+            return False
+ 
+ 
+# -------- ROBOT KEYWORD --------
+def run_test_case_22():
+    hp = MyHP()
+    if hp.open_hp_application():
+        if hp.connect_to_application():
+            if hp.open_aic():
+                hp.write_prompt("Turn on music mode")
+                time.sleep(10)
+                hp.write_prompt("1,2")
+                time.sleep(5) 
+                hp.close_hp_application()
+ 
+                # VERIFY FROM SOUND SETTINGS
+                hp.open_sound_settings()
+                hp.dump_ui_tree_to_file()
+                hp.verify_volume_from_ui("80")
+                hp.verify_unmute_from_ui()
+                time.sleep(5)
+                hp.close_settings_app()
+ 
+ 
+if __name__ == "__main__":
+    run_test_case_22()

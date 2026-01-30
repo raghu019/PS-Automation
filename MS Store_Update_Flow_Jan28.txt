@@ -1,0 +1,58 @@
+START
+  │
+  ▼
+Load Script → Print "01 OTA update automation Script file loaded"
+  │
+  ▼
+Preflight Checks
+  ├─ Admin Privileges? → FAIL → Exit
+  ├─ Required Python Packages? → FAIL → Exit
+  ├─ PowerShell available? → FAIL → Exit
+  ├─ Microsoft Store installed? → FAIL → Exit
+  ├─ BUILD_FOLDER exists? → FAIL → Exit
+  ├─ MSIX/MSIXBUNDLE files exist? → FAIL → Exit
+  └─ Preflight PASSED
+  │
+  ▼
+Install Old HP Build from BUILD_FOLDER
+  ├─ Success → Print "03 Old HP build installation completed"
+  └─ Fail → Exit
+  │
+  ▼
+Launch HP App to verify installation
+  │
+  ▼
+Get HP App Version (Prod)
+  ├─ Version found → Continue
+  └─ Version NOT found → Close HP App → Exit
+  │
+  ▼
+Main Update Loop (Max retries = 2)
+  │
+  ├─ Launch Microsoft Store
+  ├─ Open Downloads page (extra wait if first launch)
+  ├─ Click HP App in Store
+  ├─ Update Until Done
+  │     ├─ Check for "Update" or "Retry" buttons
+  │     ├─ Click buttons if visible
+  │     └─ Monitor for "Open" button → Update complete
+  │
+  ▼
+Launch HP App → Get Current Version → Close HP App
+  │
+  ▼
+Compare Current Version with Prod Version
+  ├─ If newer → final_new_build = current → Close Store → Break loop
+  ├─ If update clicked but not applied → Close Store → Retry
+  └─ Otherwise → Increment retry_count → Retry
+  │
+  ▼
+FINAL VALIDATION
+  ├─ Print Old Build Version
+  ├─ Print New Build Version
+  ├─ If no update → Print "OTA update validation failed (network issue)"
+  ├─ If newer → Print "OTA update flow completed successfully"
+  └─ Else → Print "OTA update failed (invalid build in Store)"
+  │
+  ▼
+END

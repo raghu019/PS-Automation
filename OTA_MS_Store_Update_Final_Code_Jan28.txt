@@ -1,0 +1,318 @@
+import time
+import subprocess
+import os
+import glob
+from pywinauto import Application, mouse
+
+print("01 OTA update automation Script file loaded")
+
+# =========================
+# CONFIGURATION
+# =========================
+BUILD_FOLDER = r"C:\Users\PSOTA-Automate\Downloads\OTA 100 build"
+APP_NAME = "HP"
+APP_TITLE_REGEX = ".*HP.*"
+CLICK_DELAY = 8
+
+# =========================
+# PREFLIGHT
+# =========================
+def preflight_checks():
+    print("=== Pre-flight Environment Checks ===")
+    try:
+        import ctypes
+        if not ctypes.windll.shell32.IsUserAnAdmin():
+            raise PermissionError("Script must be run as Administrator")
+        print("Admin privileges confirmed")
+    except Exception as e:
+        print(f"Admin check failed: {e}")
+        exit(1)
+
+    required_pkgs = ["pywinauto", "win32api", "comtypes"]
+    for pkg in required_pkgs:
+        try:
+            __import__(pkg)
+            print(f"Python package OK: {pkg}")
+        except ImportError:
+            print(f"Missing Python package: {pkg}")
+            exit(1)
+
+    try:
+        subprocess.run(
+            ["powershell", "-Command", "$PSVersionTable.PSVersion"],
+            check=True,
+            capture_output=True
+        )
+        print("PowerShell available")
+    except Exception:
+        print("PowerShell not available")
+        exit(1)
+
+    store_check = subprocess.run(
+        ["powershell", "-Command", "Get-AppxPackage Microsoft.WindowsStore"],
+        capture_output=True,
+        text=True
+    )
+    if not store_check.stdout.strip():
+        print("Microsoft Store not installed")
+        exit(1)
+
+    if not os.path.exists(BUILD_FOLDER):
+        print(f"BUILD_FOLDER not found: {BUILD_FOLDER}")
+        exit(1)
+
+    msix_files = glob.glob(os.path.join(BUILD_FOLDER, "*.msix")) + \
+                 glob.glob(os.path.join(BUILD_FOLDER, "*.msixbundle"))
+    if not msix_files:
+        print("No MSIX/MSIXBUNDLE files found")
+        exit(1)
+
+    print("Pre-flight checks PASSED\n")
+
+# =========================
+# INSTALL MSIX
+# =========================
+def install_msix_from_folder(build_folder):
+    msix_files = glob.glob(os.path.join(build_folder, "*.msix")) + \
+                 glob.glob(os.path.join(build_folder, "*.msixbundle"))
+
+    for installer_path in msix_files:
+        print(f"------------>>Installing old HP build: {installer_path}")
+        cmd = [
+            "powershell",
+            "-ExecutionPolicy", "Bypass",
+            "-Command",
+            f'Add-AppxPackage -Path "{installer_path}" -ForceApplicationShutdown'
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            print("MSIX installation failed")
+            print(result.stderr)
+            return False
+        print("03 Old HP build installation completed")
+    return True
+
+# =========================
+# APP CONTROL
+# =========================
+def launch_hp_app(label_launch, label_ready):
+    print(f"{label_launch} Launching HP app...........!")
+    subprocess.Popen(["cmd", "/c", "start", "HP:"])
+    time.sleep(5)
+
+    start_time = time.time()
+    while time.time() - start_time < 30:
+        try:
+            app = Application(backend="uia").connect(title_re=APP_TITLE_REGEX)
+            win = app.top_window()
+            win.set_focus()
+            win.maximize()
+            print(f"{label_ready} HP app launched and maximized................!")
+            return
+        except Exception:
+            time.sleep(2)
+
+def close_hp_app():
+    try:
+        app = Application(backend="uia").connect(title_re=APP_TITLE_REGEX, timeout=5)
+        app.top_window().close()
+        time.sleep(2)
+    except Exception:
+        subprocess.run(["taskkill", "/F", "/IM", "HPApp.exe"], capture_output=True)
+
+# =========================
+# VERSION CHECKS
+# =========================
+def get_hp_app_version_prod():
+    cmd = [
+        "powershell",
+        "-Command",
+        f"Get-AppxPackage -Name *{APP_NAME}* | Select-Object -ExpandProperty Version"
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    for v in result.stdout.splitlines():
+        p = v.strip().split(".")
+        if len(p) == 4 and int(p[1]) >= 50000:
+            return ".".join(p)
+    return None
+
+def get_hp_app_version_current():
+    cmd = [
+        "powershell",
+        "-Command",
+        f"Get-AppxPackage -Name *{APP_NAME}* | Select-Object -ExpandProperty Version"
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    for v in result.stdout.splitlines():
+        p = v.strip().split(".")
+        if len(p) == 4 and int(p[1]) >= 50000:
+            return ".".join(p)
+    return None
+
+def is_newer_version(current, version_prod):
+    if not current or not version_prod:
+        return False
+    return [int(x) for x in current.split(".")] > [int(x) for x in version_prod.split(".")]
+
+# =========================
+# MICROSOFT STORE
+# =========================
+def launch_microsoft_store():
+    subprocess.Popen(["cmd", "/c", "start", "ms-windows-store:"])
+    print("07 Launching Microsoft Store..........!!")
+    time.sleep(3)
+
+def close_microsoft_store():
+    subprocess.run(["taskkill", "/F", "/IM", "WinStore.App.exe"], capture_output=True)
+    time.sleep(3)
+
+def connect_store_window(timeout=40):
+    start = time.time()
+    while time.time() - start < timeout:
+        try:
+            app = Application(backend="uia").connect(title_re=".*Microsoft Store.*")
+            win = app.top_window()
+            if win.exists():
+                return win
+        except Exception:
+            time.sleep(1)
+    raise TimeoutError("Microsoft Store window not found")
+
+def safe_click(ctrl):
+    try:
+        ctrl.invoke()
+    except Exception:
+        ctrl.click_input()
+
+def open_downloads(first_time=False):
+    win = connect_store_window()
+    win.set_focus()
+    if first_time:
+        time.sleep(5)  # extra wait for first launch
+    start = time.time()
+    while time.time() - start < 30:
+        for ctrl in win.descendants():
+            if "download" in (ctrl.element_info.name or "").lower():
+                safe_click(ctrl)
+                print("08 Downloads page opened")
+                time.sleep(3)
+                return
+        time.sleep(1)
+
+def click_hp_app():
+    win = connect_store_window()
+    win.set_focus()
+    start = time.time()
+    while time.time() - start < 40:
+        for ctrl in win.descendants():
+            if (ctrl.element_info.name or "").strip() == APP_NAME:
+                r = ctrl.rectangle()
+                mouse.click(coords=(r.left + 20, r.top + r.height() // 2))
+                print("09 HP app selected in Downloads")
+                time.sleep(3)
+                return
+        time.sleep(1)
+
+# =========================
+# UPDATE / RECOVERY
+# =========================
+def update_until_done(version_prod):
+    print("10 Monitoring Update / Retry buttons.......")
+    recovery_waits = [40, 30, 20]
+    updates_clicked = False
+
+    for idx, wait_time in enumerate(recovery_waits):
+        start = time.time()
+        while time.time() - start < wait_time:
+            win = connect_store_window()
+            win.set_focus()
+            for ctrl in win.descendants():
+                name = (ctrl.element_info.name or "").lower().strip()
+                if name == "open" and updates_clicked:
+                    print("Update completed. Open button detected.")
+                    return True
+                if name in ("update", "retry") and ctrl.is_visible():
+                    safe_click(ctrl)
+                    print(f"Clicked {ctrl.element_info.name}")
+                    updates_clicked = True
+                    time.sleep(CLICK_DELAY)
+            time.sleep(1)
+        print(f"No Update/Retry → Recovery #{idx + 1}")
+        open_downloads()
+        click_hp_app()
+    return False
+
+# =========================
+# MAIN FLOW
+# =========================
+def main():
+    preflight_checks()
+    print("02 Starting OTA update Automation Flow")
+
+    if not install_msix_from_folder(BUILD_FOLDER):
+        return
+
+    launch_hp_app("04", "05")
+    version_prod = get_hp_app_version_prod()
+    if not version_prod:
+        print("Old build is not Prod")
+        close_hp_app()
+        return
+
+    print(f"06 Valid old HP Prod build version detected : {version_prod}")
+    close_hp_app()
+
+    max_retries = 2
+    retry_count = 0
+    store_extra_retry_done = False
+    final_new_build = None
+    first_store_launch = True
+
+    while retry_count < max_retries:
+        launch_microsoft_store()
+        open_downloads(first_time=first_store_launch)
+        click_hp_app()
+        first_store_launch = False
+
+        updated = update_until_done(version_prod)
+
+        launch_hp_app("11", "12")
+        time.sleep(5)
+        current = get_hp_app_version_current()
+        close_hp_app()
+
+        print(f"➡ Detected Build After Update : {current}")
+
+        if is_newer_version(current, version_prod):
+            final_new_build = current
+            close_microsoft_store()
+            break
+
+        if updated and not store_extra_retry_done:
+            close_microsoft_store()
+            time.sleep(5)
+            store_extra_retry_done = True
+            retry_count += 1
+            continue
+
+        close_microsoft_store()
+        retry_count += 1
+
+    # =========================
+    # FINAL VALIDATION AFTER ALL RETRIES
+    # =========================
+    print(f"➡ Old Build : {version_prod}")
+    print(f"➡ New Build : {final_new_build}")
+
+    if final_new_build is None or final_new_build == version_prod:
+        print("OTA update validation failed due to network issue")
+    elif is_newer_version(final_new_build, version_prod):
+        print("13 OTA update flow completed successfully-----!!!")
+    else:
+        print("OTA update validation failed due to invalid build in MS store !!")
+
+# =========================
+# RUN
+# =========================
+if __name__ == "__main__":
+    main()
